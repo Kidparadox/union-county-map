@@ -3,18 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Union County, NJ — Live OSM Buildings + Block Counts</title>
+  <title>Union County Map — Towns + Dots + Comments (Touch‑Ready)</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     html, body { height: 100%; margin: 0; }
     #app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
-    .topbar { display:flex; gap:.5rem; align-items:center; padding:.6rem .8rem; border-bottom:1px solid #e5e7eb; background:#fff; position:sticky; top:0; z-index:10; }
-    .topbar h1 { font:600 16px system-ui; margin:0 .5rem 0 0; }
+    .topbar { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; padding:.6rem .8rem; border-bottom:1px solid #e5e7eb; background:#fff; position:sticky; top:0; z-index:10; }
+    .topbar h1 { font:600 16px system-ui, -apple-system, Segoe UI, Roboto; margin:0 .5rem 0 0; }
     .btn { appearance:none; border:1px solid #e5e7eb; background:#fff; border-radius:12px; padding:.45rem .6rem; font:600 13px system-ui; cursor:pointer; }
     .btn:active{ transform:translateY(1px);} 
     .btn[data-active="true"]{ border-color:#111; box-shadow:0 0 0 2px rgba(0,0,0,.12);} 
     #map { height: 100%; width: 100%; }
 
+    /* Dot visuals */
     .house-marker { position:relative; }
     .house { width: 14px; height: 14px; background:#fff; border:2px solid #6b7280; transform: rotate(45deg); border-radius:2px; box-sizing:border-box; }
     .status-green .house { border-color:#10b981; box-shadow:0 0 8px 2px rgba(16,185,129,.85);} 
@@ -27,6 +28,8 @@
     .sq.r { border-color:#ef4444; box-shadow:0 0 6px 1px rgba(239,68,68,.85);} 
     .badge { background:#111; color:#fff; padding:.1rem .4rem; border-radius:999px; font:700 11px system-ui; }
     .pill { background:#f3f4f6; padding:.15rem .45rem; border-radius:999px; font:600 11px system-ui; }
+
+    .count-chip { background:#111827; color:#fff; font:700 11px system-ui; padding:2px 6px; border-radius:999px; border:1px solid #0b1220; }
     .block-label { background:rgba(255,255,255,.9); padding:2px 6px; border-radius:6px; border:1px solid #e5e7eb; font:700 11px system-ui; }
   </style>
 </head>
@@ -37,32 +40,32 @@
       <button id="baseStreetBtn" class="btn">Streets</button>
       <button id="baseSatBtn" class="btn">Satellite</button>
       <button id="baseHybridBtn" class="btn">Hybrid</button>
-      <button id="loadBuildingsBtn" class="btn">Load Houses (OSM)</button>
-      <button id="loadBlocksBtn" class="btn">Load Census Blocks</button>
-      <button id="addDotBtn" class="btn" aria-pressed="false">Add Dot</button>
-      <button id="dotColorBtn" class="btn" aria-pressed="false">Dot: Red</button>
-      <span id="stats" class="pill">Waiting…</span>
-      <button id="exportBtn" class="btn" title="Export visited statuses to JSON">Export</button>
+      <button id="toggleTownsBtn" class="btn" title="Show/Hide municipal boundaries">Hide Towns</button>
+      <button id="addDotBtn" class="btn" aria-pressed="false" title="Tap the map to place dots">Add Dot</button>
+      <button id="dotColorBtn" class="btn" aria-pressed="false" title="Toggle new dot color">Dot: Red</button>
+      <button id="deleteDotBtn" class="btn" aria-pressed="false" title="Tap a dot to delete">Delete Dot</button>
+      <button id="clearDotsBtn" class="btn" title="Remove all dots">Clear Dots</button>
+      <span id="stats" class="pill">Ready</span>
+      <span class="pill">Total Dots: <span id="dotTotal" class="badge">0</span></span>
+      <button id="exportBtn" class="btn" title="Export dots to JSON">Export</button>
     </div>
-    <div id="map" role="application" aria-label="Map with houses & blocks"></div>
+    <div id="map" role="application" aria-label="Map with dots & towns"></div>
     <div class="legend">
-      <div class="legend-row"><span class="sq g"></span> Visited</div>
-      <div class="legend-row"><span class="sq r"></span> Not visited</div>
-      <div class="legend-row">Blocks: <span id="blockCount" class="badge">0</span></div>
-      <div class="legend-row">Houses: <span id="houseCount" class="badge">0</span></div>
+      <div class="legend-row"><span class="sq g"></span> Green (visited)</div>
+      <div class="legend-row"><span class="sq r"></span> Red (not visited)</div>
+      <div class="legend-row">Dots: <span id="legendDotTotal" class="badge">0</span></div>
     </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
   <script>
     // =========================
     // Base map & basemap toggles
     // =========================
     const map = L.map('map', { tap: true }).setView([40.659, -74.304], 12);
-    const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'&copy; OpenStreetMap contributors' });
+    const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap contributors' });
     const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles © Esri, Maxar' });
-    const hybridLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', { subdomains:'abcd', maxZoom:20, attribution:'©OpenStreetMap, ©Carto' });
+    const hybridLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', { subdomains:'abcd', maxZoom:20, attribution:'© OpenStreetMap, © Carto' });
     streetLayer.addTo(map);
 
     const removeTileLayers = () => map.eachLayer(l => { if (l instanceof L.TileLayer) map.removeLayer(l); });
@@ -70,18 +73,17 @@
     document.getElementById('baseSatBtn').addEventListener('click', ()=>{ removeTileLayers(); satelliteLayer.addTo(map); });
     document.getElementById('baseHybridBtn').addEventListener('click', ()=>{ removeTileLayers(); satelliteLayer.addTo(map); hybridLabels.addTo(map); });
 
-    // =========================
-    // UI refs & counters
-    // =========================
     const statsEl = document.getElementById('stats');
-    const houseCountEl = document.getElementById('houseCount');
-    const blockCountEl = document.getElementById('blockCount');
+    const dotTotalEl = document.getElementById('dotTotal');
+    const legendDotTotalEl = document.getElementById('legendDotTotal');
 
     // =========================
-    // County boundary (Nominatim)
+    // County boundary & Towns
     // =========================
     let unionBoundaryLayer = null;
-    let unionBoundaryGeo = null;
+    let townsVisible = false;
+    const townLayer = L.layerGroup().addTo(map);
+
     (async function loadUnionCountyBoundary(){
       try {
         statsEl.textContent = 'Loading county…';
@@ -90,93 +92,163 @@
         const data = await res.json();
         const feat = data.features && data.features[0];
         if (!feat) throw new Error('County not found');
-        unionBoundaryGeo = feat.geometry;
-        unionBoundaryLayer = L.geoJSON(unionBoundaryGeo, { style: { color:'#111827', weight:2, fillOpacity:.05 }}).addTo(map);
+        unionBoundaryLayer = L.geoJSON(feat.geometry, { style: { color:'#111827', weight:2, fillOpacity:.05 }}).addTo(map);
         map.fitBounds(unionBoundaryLayer.getBounds().pad(0.1));
-        statsEl.textContent = 'County ready';
+        statsEl.textContent = 'Ready';
+        // Auto-load towns
+        await toggleTowns();
       } catch (e) {
         console.warn(e);
         statsEl.textContent = 'County load failed';
       }
     })();
 
+    async function toggleTowns(){
+      const btn = document.getElementById('toggleTownsBtn');
+      if (townsVisible) {
+        townLayer.clearLayers();
+        townsVisible=false;
+        statsEl.textContent='Towns hidden';
+        if (btn) btn.textContent = 'Show Towns';
+        return;
+      }
+      statsEl.textContent = 'Loading towns…';
+      townLayer.clearLayers();
+      const q = `[
+        out:json][timeout:180];
+        area["name"="Union County"]["admin_level"="6"]["boundary"="administrative"]->.county;
+        relation["boundary"="administrative"]["admin_level"="8"](area.county);
+        out tags;
+        >; out geom;`;
+      try {
+        const res = await fetch('https://overpass-api.de/api/interpreter', { method:'POST', body: q });
+        const data = await res.json();
+        const wayById = new Map();
+        (data.elements||[]).forEach(el=>{ if(el.type==='way' && el.geometry){ wayById.set(el.id, el.geometry); }});
+        const colors = ['#ef4444','#10b981','#3b82f6','#f59e0b','#8b5cf6','#06b6d4','#22c55e','#e11d48','#0ea5e9','#f97316'];
+        let ci = 0;
+        (data.elements||[]).forEach(el=>{
+          if (el.type !== 'relation' || !el.tags || !el.tags.name) return;
+          const name = el.tags.name;
+          const color = colors[ci++ % colors.length];
+          const outerWays = (el.members||[]).filter(m=>m.type==='way' && (m.role==='outer' || m.role===''));
+          const polylines = [];
+          outerWays.forEach(m=>{
+            const geom = wayById.get(m.ref);
+            if (!geom) return;
+            const latlngs = geom.map(g=>[g.lat, g.lon]);
+            polylines.push(latlngs);
+          });
+          if (polylines.length){
+            polylines.forEach(lls=> L.polyline(lls, { color, weight: 2, opacity: 0.9 }).addTo(townLayer));
+            const pts = polylines[0];
+            const c = pts.reduce((a,p)=>[a[0]+p[0], a[1]+p[1]],[0,0]).map(v=>v/pts.length);
+            L.marker([c[0], c[1]], { icon: L.divIcon({className:'', html:`<div class='block-label'>${name}</div>`}) }).addTo(townLayer);
+          }
+        });
+        townsVisible = true;
+        statsEl.textContent = 'Towns shown';
+        if (btn) btn.textContent = 'Hide Towns';
+      } catch (e) {
+        console.warn('Towns load failed', e);
+        statsEl.textContent = 'Towns load failed';
+        if (btn) btn.textContent = 'Show Towns';
+      }
+    }
+    document.getElementById('toggleTownsBtn').addEventListener('click', toggleTowns);
+
     // =========================
-    // Layers & data stores
+    // Dots (user-placed) + Comments
     // =========================
-    const houseMarkers = L.layerGroup().addTo(map);
     const customDotLayer = L.layerGroup().addTo(map);
     const markerById = new Map();
-    const houses = []; // OSM-derived buildings
-    const customDots = []; // user-placed dots
+    const customDots = []; // { id, lat, lng, status, seq, comment }
+    let dotSeq = 0; // sequential counter for each dot
 
-    // =========================
-    // Marker helpers
-    // =========================
-    function makeIcon(status='none') {
+    function updateDotCounts(){
+      const n = customDots.length;
+      dotTotalEl.textContent = String(n);
+      legendDotTotalEl.textContent = String(n);
+    }
+
+    function makeIcon(status='red') {
       return L.divIcon({ className: `house-marker status-${status}`, html: '<div class="house"></div>', iconSize:[14,14], iconAnchor:[7,7] });
     }
-    function setStatus(h, status) { h.status = status; const m = markerById.get(h.id); if (m) m.setIcon(makeIcon(status)); }
 
-    function addHouse(h) {
-      const m = L.marker([h.lat, h.lng], { icon: makeIcon(h.status||'red') })
-        .addTo(houseMarkers)
-        .bindPopup(() => {
-          return `<div style="font:600 13px system-ui; display:grid; gap:.4rem;">
-            <div><strong>${h.props['addr:housenumber']||''} ${h.props['addr:street']||''}</strong><br><small>${h.id}</small></div>
-            <div style="display:flex; gap:.4rem;">
-              <button data-act="green">Visited</button>
-              <button data-act="red">Not Visited</button>
-            </div>
-          </div>`;
-        });
-      m.on('popupopen', (e)=>{
-        const root = e.popup.getElement();
-        root.querySelectorAll('[data-act]')?.forEach(btn=>{
-          btn.addEventListener('click', ()=>{ setStatus(h, btn.dataset.act); m.closePopup(); }, { once:true });
-        });
-      });
-      markerById.set(h.id, m);
+    function attachDotTooltip(marker, d){
+      const content = `<span class='count-chip'>${d.seq}</span>${d.comment && d.comment.trim() ? ' 📝' : ''}`;
+      marker.bindTooltip(content, { permanent:true, direction:'top', offset:[0,-14], opacity:1, className:'' });
+    }
+    function updateDotTooltip(marker, d){
+      const content = `<span class='count-chip'>${d.seq}</span>${d.comment && d.comment.trim() ? ' 📝' : ''}`;
+      const tt = marker.getTooltip();
+      if (tt) tt.setContent(content); else marker.bindTooltip(content, { permanent:true, direction:'top', offset:[0,-14], opacity:1, className:'' });
     }
 
-    function addCustomDot(d) {
-      const m = L.marker([d.lat, d.lng], { icon: makeIcon(d.status) })
-        .addTo(customDotLayer)
-        .bindPopup(() => {
-          return `<div style="font:600 13px system-ui; display:grid; gap:.4rem;">
-            <div><strong>Custom Dot</strong><br><small>${d.id}</small></div>
-            <div style="display:flex; gap:.4rem;">
-              <button data-act="green">Green</button>
-              <button data-act="red">Red</button>
-              <button data-act="clear">Clear</button>
-            </div>
-          </div>`;
-        });
+    function addCustomDot(d){
+      if (typeof d.comment !== 'string') d.comment = '';
+      const m = L.marker([d.lat, d.lng], { icon: makeIcon(d.status) }).addTo(customDotLayer);
+      attachDotTooltip(m, d);
+      m.bindPopup(() => {
+        const safeComment = (d.comment || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `<div style=\"font:600 13px system-ui; display:grid; gap:.5rem; max-width:260px;\">\n          <div><strong>Dot #${d.seq}</strong><br><small>${d.id}</small></div>\n          <label style=\"font-weight:700; font-size:12px;\">Comment</label>\n          <textarea data-field=\"comment\" rows=\"3\" style=\"width:100%; font:600 12px system-ui; padding:.35rem; border:1px solid #e5e7eb; border-radius:8px;\">${safeComment}</textarea>\n          <div style=\"display:flex; gap:.4rem; align-items:center;\">\n            <button data-act=\"save-comment\">Save</button>\n            <span style=\"margin-left:auto; font-size:12px; opacity:.7;\">Set color:</span>\n            <button data-act=\"green\">Green</button>\n            <button data-act=\"red\">Red</button>\n            <button data-act=\"clear\">Clear</button>\n            <button data-act=\"delete\" style=\"margin-left:auto\">Delete</button>\n          </div>\n        </div>`;
+      });
       m.on('popupopen', (e)=>{
         const root = e.popup.getElement();
+        const ta = root.querySelector('textarea[data-field="comment"]');
+        if (ta) ta.value = d.comment || '';
         root.querySelectorAll('[data-act]')?.forEach(btn=>{
           btn.addEventListener('click', ()=>{
             const act = btn.dataset.act;
+            if (act === 'save-comment') {
+              d.comment = (ta?.value || '').trim();
+              updateDotTooltip(m, d);
+              statsEl.textContent = d.comment ? 'Comment saved' : 'Comment cleared';
+              m.closePopup();
+              return;
+            }
+            if (act === 'delete') { removeDot(d.id); return; }
             d.status = (act==='clear') ? 'none' : act;
             m.setIcon(makeIcon(d.status));
             m.closePopup();
           }, { once:true });
         });
       });
+      markerById.set(d.id, m);
       return m;
     }
 
-    // =========================
-    // Add-Dot mode (touch-friendly)
-    // =========================
+    function removeDot(id){
+      const idx = customDots.findIndex(x => x.id === id);
+      if (idx !== -1) customDots.splice(idx,1);
+      const m = markerById.get(id);
+      if (m) { customDotLayer.removeLayer(m); markerById.delete(id); }
+      updateDotCounts();
+    }
+
+    function clearAllDots(){
+      customDots.splice(0, customDots.length);
+      markerById.forEach(m => customDotLayer.removeLayer(m));
+      markerById.clear();
+      updateDotCounts();
+    }
+
+    // Modes
     let addDotMode = false;
+    let deleteDotMode = false;
     let nextDotColor = 'red';
+
     const addDotBtn = document.getElementById('addDotBtn');
     const dotColorBtn = document.getElementById('dotColorBtn');
+    const deleteDotBtn = document.getElementById('deleteDotBtn');
+    const clearDotsBtn = document.getElementById('clearDotsBtn');
 
     addDotBtn.addEventListener('click', ()=>{
-      addDotMode = !addDotMode;
+      addDotMode = !addDotMode; if (addDotMode) deleteDotMode = false; // mutually exclusive
       addDotBtn.dataset.active = String(addDotMode);
       addDotBtn.setAttribute('aria-pressed', String(addDotMode));
+      deleteDotBtn.dataset.active = 'false';
+      deleteDotBtn.setAttribute('aria-pressed','false');
       addDotBtn.textContent = addDotMode ? 'Add Dot: ON' : 'Add Dot';
     });
 
@@ -186,160 +258,45 @@
       dotColorBtn.setAttribute('aria-pressed', String(nextDotColor==='green'));
     });
 
+    deleteDotBtn.addEventListener('click', ()=>{
+      deleteDotMode = !deleteDotMode; if (deleteDotMode) addDotMode = false; // mutually exclusive
+      deleteDotBtn.dataset.active = String(deleteDotMode);
+      deleteDotBtn.setAttribute('aria-pressed', String(deleteDotMode));
+      addDotBtn.dataset.active = 'false';
+      addDotBtn.setAttribute('aria-pressed','false');
+      addDotBtn.textContent = 'Add Dot';
+      statsEl.textContent = deleteDotMode ? 'Delete mode: tap a dot to remove' : 'Ready';
+    });
+
+    clearDotsBtn.addEventListener('click', ()=>{ if (confirm('Clear all dots?')) clearAllDots(); });
+
+    // Map interactions
     map.on('click', (e)=>{
       if (!addDotMode) return;
       const id = 'D-' + Math.random().toString(36).slice(2,7).toUpperCase();
-      const d = { id, lat: e.latlng.lat, lng: e.latlng.lng, status: nextDotColor };
+      const d = { id, lat: e.latlng.lat, lng: e.latlng.lng, status: nextDotColor, seq: ++dotSeq, comment: '' };
       customDots.push(d);
       const m = addCustomDot(d);
       m.openPopup();
+      updateDotCounts();
     });
 
-    // =========================
-    // Load OSM buildings via Overpass (chunked)
-    // =========================
-    async function loadOSMBuildings() {
-      if (!unionBoundaryLayer) return alert('County not ready yet.');
-      statsEl.textContent = 'Loading houses…';
-      houseMarkers.clearLayers(); houses.length = 0; markerById.clear();
-      const bounds = unionBoundaryLayer.getBounds();
-      const n = bounds.getNorth(), s = bounds.getSouth(), e = bounds.getEast(), w = bounds.getWest();
-      const rows = 4, cols = 4; // 16 chunks
-      const latStep = (n - s) / rows, lngStep = (e - w) / cols;
-      const chunks = [];
-      for (let r=0; r<rows; r++){
-        for (let c=0; c<cols; c++){
-          const bb = [s + r*latStep, w + c*lngStep, s + (r+1)*latStep, w + (c+1)*lngStep];
-          chunks.push(bb);
-        }
-      }
-      let loaded = 0;
-      for (const bb of chunks){
-        const [S,W,N,E] = bb; // Overpass bbox order: S,W,N,E
-        const q = `[
-          out:json][timeout:120];
-          (
-            way["building"](${S},${W},${N},${E});
-            relation["building"](${S},${W},${N},${E});
-          );
-          out body center tags;`;
-        try {
-          const res = await fetch('https://overpass-api.de/api/interpreter', { method:'POST', body: q });
-          const data = await res.json();
-          (data.elements||[]).forEach(el => {
-            const lat = el.center?.lat; const lon = el.center?.lon;
-            if (lat==null || lon==null) return;
-            const pt = turf.point([lon, lat]);
-            if (unionBoundaryGeo && !turf.booleanPointInPolygon(pt, unionBoundaryGeo)) return;
-            const id = `${el.type}/${el.id}`;
-            const h = { id, lat, lng: lon, status: 'red', props: el.tags || {} };
-            houses.push(h);
-            addHouse(h);
-          });
-          loaded++;
-          statsEl.textContent = `Houses chunks: ${loaded}/${chunks.length}`;
-        } catch (e) {
-          console.warn('Overpass chunk failed', e);
-        }
-      }
-      houseCountEl.textContent = String(houses.length);
-      statsEl.textContent = `Loaded ${houses.length} houses`;
-    }
-    document.getElementById('loadBuildingsBtn').addEventListener('click', loadOSMBuildings);
-
-    // =========================
-    // Census blocks (TIGERweb) & counting
-    // =========================
-    const blockLayer = L.layerGroup().addTo(map);
-    let blocks = []; // { id, layer, geom, count }
-
-    async function loadCensusBlocks() {
-      if (!unionBoundaryLayer) return alert('County not ready yet.');
-      statsEl.textContent = 'Loading blocks…';
-      blockLayer.clearLayers(); blocks.length = 0;
-      const url = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/3/query?where=STATE%3D%27034%27%20AND%20COUNTY%3D%27039%27&outFields=STATE,COUNTY,TRACT,BLOCK,NAME,GEOID&f=geojson&outSR=4326&returnGeometry=true';
-      try {
-        const res = await fetch(url);
-        const gj = await res.json();
-        (gj.features||[]).forEach(f => {
-          const id = f.properties.GEOID || f.properties.GEOID20 || `${f.properties.STATE}${f.properties.COUNTY}${f.properties.TRACT}${f.properties.BLOCK}`;
-          const layer = L.geoJSON(f.geometry, { style:{ color:'#2563eb', weight:1, fillOpacity:0 } });
-          layer.addTo(blockLayer);
-          blocks.push({ id, layer, geom: f.geometry, count: 0 });
-        });
-        blockCountEl.textContent = String(blocks.length);
-        statsEl.textContent = `Blocks loaded: ${blocks.length}`;
-        if (houses.length) assignHousesToBlocks();
-      } catch (e) {
-        console.warn('Blocks load failed', e);
-        statsEl.textContent = 'Blocks load failed';
-      }
-    }
-
-    function assignHousesToBlocks(){
-      // reset counts
-      blocks.forEach(b => b.count = 0);
-      houses.forEach(h => {
-        const pt = turf.point([h.lng, h.lat]);
-        const blk = blocks.find(b => turf.booleanPointInPolygon(pt, b.geom));
-        if (blk) blk.count++;
-      });
-      // rebuild layers with labels to avoid duplicate markers
-      blockLayer.clearLayers();
-      blocks.forEach(b => {
-        const layer = L.geoJSON(b.geom, { style:{ color:'#2563eb', weight:1, fillOpacity:0 } }).addTo(blockLayer);
-        const center = turf.centerOfMass(b.geom).geometry.coordinates;
-        L.marker([center[1], center[0]], { icon: L.divIcon({ className:'', html: `<div class='block-label'>${b.count}</div>` }) }).addTo(blockLayer);
-        b.layer = layer;
-      });
-      statsEl.textContent = 'Blocks counted';
-    }
-    document.getElementById('loadBlocksBtn').addEventListener('click', async ()=>{
-      await loadCensusBlocks();
-      if (!houses.length) await loadOSMBuildings();
-      assignHousesToBlocks();
+    // Delegate click-to-delete when in delete mode
+    customDotLayer.on('click', (e)=>{
+      if (!deleteDotMode) return;
+      const pair = Array.from(markerById.entries()).find(([id, m]) => m === e.layer || m._leaflet_id === e.layer._leaflet_id);
+      if (pair) removeDot(pair[0]);
     });
 
-    // =========================
-    // Export (houses + custom dots)
-    // =========================
+    // Export dots as JSON (with comments)
     document.getElementById('exportBtn').addEventListener('click', ()=>{
-      const out = {
-        houses: houses.map(h => ({ id: h.id, lat: h.lat, lng: h.lng, visited: h.status==='green', status: h.status, props: h.props })),
-        customDots: customDots.map(d => ({ id: d.id, lat: d.lat, lng: d.lng, status: d.status }))
-      };
+      const out = { dots: customDots.map(d => ({ id: d.id, lat: d.lat, lng: d.lng, status: d.status, seq: d.seq, comment: d.comment || '' })) };
       const blob = new Blob([JSON.stringify(out, null, 2)], { type:'application/json' });
       const url = URL.createObjectURL(blob);
-      const a = Object.assign(document.createElement('a'), { href: url, download: 'union-map-data.json' });
+      const a = Object.assign(document.createElement('a'), { href: url, download: 'union-dots.json' });
       a.click();
       setTimeout(()=>URL.revokeObjectURL(url), 2000);
     });
-
-    // =========================
-    // Minimal self-tests (console)
-    // =========================
-    function assert(name, condition){
-      if (condition) { console.log('✅', name); } else { console.error('❌', name); }
-    }
-    (function runSelfTests(){
-      try {
-        assert('Map initialized', map instanceof L.Map);
-        assert('Street layer present', Object.values(map._layers).some(l => l instanceof L.TileLayer));
-        assert('Required buttons exist', !!document.getElementById('baseStreetBtn') && !!document.getElementById('loadBuildingsBtn') && !!document.getElementById('exportBtn'));
-        // Test addCustomDot helper
-        const temp = { id: 'TEST-DOT', lat: 40.66, lng: -74.3, status: 'green' };
-        const marker = addCustomDot(temp);
-        assert('Custom dot added', !!marker);
-        customDotLayer.removeLayer(marker);
-        // Basemap toggles shouldn't throw
-        document.getElementById('baseSatBtn').click();
-        document.getElementById('baseHybridBtn').click();
-        document.getElementById('baseStreetBtn').click();
-        console.log('🧪 Self-tests completed');
-      } catch (err) {
-        console.error('Self-test error', err);
-      }
-    })();
   </script>
 </body>
 </html>
